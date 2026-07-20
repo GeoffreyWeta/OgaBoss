@@ -105,7 +105,7 @@ function Auth({ onDone }) {
 
   return (
     <div className="login">
-      <div className="wordmark big">HQ</div>
+      <div className="wordmark big">OgaBoss</div>
       <div className="eyebrow">Your company. Your call.</div>
       {mode !== "login" && <input className="in" placeholder="Your name" value={f.display_name} onChange={set("display_name")} />}
       <input className="in" placeholder="Username" value={f.username} onChange={set("username")} autoCapitalize="none" />
@@ -128,7 +128,7 @@ function Auth({ onDone }) {
 function Pending({ onLogout, onRefresh }) {
   return (
     <div className="login">
-      <div className="wordmark big">HQ</div>
+      <div className="wordmark big">OgaBoss</div>
       <div className="eyebrow">Enrollment pending</div>
       <p className="body">Your request is on the CEO's desk. Once approved, your role and department appear here.</p>
       <button className="btn coral" onClick={onRefresh}>Check again</button>
@@ -1026,7 +1026,7 @@ export default function App() {
     <ThemeCtx.Provider value={theme}>
     <div className="hq">
       <div className="top">
-        <div className="wordmark">HQ<span>.</span></div>
+        <div className="wordmark">OgaBoss<span>.</span></div>
         <div className="eyebrow grow">{me.is_ceo ? "CEO's office" : me.role === "head" ? `Head — ${me.department}` : "Member"}</div>
         <ThemePicker t={theme} setT={setTheme} />
         <button className="btn ghost sm" onClick={logout}>Log out</button>

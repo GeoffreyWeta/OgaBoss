@@ -22,8 +22,8 @@ ships without the CEO's approval**. Tryblie is seeded as tenant #1.
 3. Set the prompted env vars:
    - `ANTHROPIC_API_KEY` — your key from console.anthropic.com (this is your COGS).
    - `CEO_PASSWORD` — your login password (username defaults to `geoffrey`).
-   - On **aihq-app**: `VITE_API_URL` = the aihq-api URL (e.g. `https://aihq-api.onrender.com`).
-   - On **aihq-api**: `FRONTEND_ORIGIN` = the aihq-app URL (locks CORS down).
+   - On **ogaboss-app**: `VITE_API_URL` = the ogaboss-api URL (e.g. `https://ogaboss-api.onrender.com`).
+   - On **ogaboss-api**: `FRONTEND_ORIGIN` = the ogaboss-app URL (locks CORS down).
 4. Deploy. The build migrates and seeds Tryblie automatically. Log in and send your first directive.
 
 ## Run locally
