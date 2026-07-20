@@ -1,0 +1,30 @@
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path("auth/login/", views.login_view),
+    path("auth/register/", views.register),
+    path("me/", views.me),
+    path("members/", views.members_list),
+    path("members/<int:pk>/", views.member_update),
+    path("agents/", views.agent_create),
+    path("agents/<int:pk>/", views.agent_detail),
+    path("desk/", views.desk),
+    path("org/", views.org_chart),
+    path("constitution/", views.constitution),
+    path("directives/", views.create_directive),
+    path("deliberations/<int:pk>/", views.deliberation_detail),
+    path("proposals/<int:pk>/", views.proposal_detail),
+    path("proposals/<int:pk>/decide/", views.proposal_decide),
+    path("artifacts/<int:pk>/decide/", views.artifact_decide),
+    path("agents/<int:pk>/chat/", views.agent_chat),
+    path("daily/", views.trigger_daily),
+    path("playbook/", views.playbook),
+    path("policies/", views.policies),
+    path("agents/<int:pk>/capabilities/", views.agent_capabilities),
+    path("capabilities/<int:pk>/", views.capability_delete),
+    path("meetings/", views.meetings),
+    path("usage/", views.usage),
+    path("orders/", views.standing_orders),
+    path("orders/<int:pk>/", views.standing_order_delete),
+]
