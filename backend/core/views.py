@@ -273,6 +273,9 @@ def me(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def register(request):
+    """Create a user account only. Choosing/creating a company is a separate
+    step (see found_company / join_company), so signup no longer requires
+    picking an organization up front."""
     username = (request.data.get("username") or "").strip().lower()
     password = request.data.get("password") or ""
     display = (request.data.get("display_name") or "").strip()
@@ -280,31 +283,53 @@ def register(request):
         return Response({"error": "Username and a password of 8+ characters required."}, status=400)
     if User.objects.filter(username=username).exists():
         return Response({"error": "That username is taken."}, status=400)
-    new_org_name = (request.data.get("new_org_name") or "").strip()
-    user = User.objects.create_user(username=username, password=password)
+    user = User.objects.create_user(username=username, password=password, first_name=display)
     token, _ = Token.objects.get_or_create(user=user)
-    if new_org_name:
-        slug = slugify(new_org_name) or f"org-{user.id}"
-        if Organization.objects.filter(slug=slug).exists():
-            slug = f"{slug}-{user.id}"
-        org = Organization.objects.create(name=new_org_name, slug=slug)
-        Constitution.objects.create(org=org, content=f"# {new_org_name} — Constitution\n\nWrite your culture, policies, and direction here. Every agent reads this before acting.")
-        Agent.objects.create(
-            org=org, name="Alex", role="Chief of Staff", department="Office of the CEO",
-            persona="World-class Chief of Staff. Protects the CEO's focus, drafts crisply, thinks in the ONE thing that moves the company this week.",
-            mandate="Priorities, drafting, meeting prep", is_head=True, proactive=True, shape="circle",
-        )
-        Member.objects.create(org=org, user=user, display_name=display or username.title(), role="ceo", status="active")
-        return Response({"token": token.key, "username": username, "status": "active",
-                         "note": f"{new_org_name} is founded — you're the CEO. Build your team."})
+    return Response({"token": token.key, "username": username, "status": "none"})
+
+
+def _member_display_name(user):
+    return (user.first_name or "").strip() or user.username.title()
+
+
+def _bootstrap_org(name, user_id):
+    slug = slugify(name) or f"org-{user_id}"
+    if Organization.objects.filter(slug=slug).exists():
+        slug = f"{slug}-{user_id}"
+    org = Organization.objects.create(name=name, slug=slug)
+    Constitution.objects.create(org=org, content=f"# {name} — Constitution\n\nWrite your culture, policies, and direction here. Every agent reads this before acting.")
+    Agent.objects.create(
+        org=org, name="Alex", role="Chief of Staff", department="Office of the CEO",
+        persona="World-class Chief of Staff. Protects the CEO's focus, drafts crisply, thinks in the ONE thing that moves the company this week.",
+        mandate="Priorities, drafting, meeting prep", is_head=True, proactive=True, shape="circle",
+    )
+    return org
+
+
+@api_view(["POST"])
+def found_company(request):
+    """Authenticated user creates their own company and becomes its CEO."""
+    if get_member(request.user):
+        return Response({"error": "You already belong to a company."}, status=400)
+    name = (request.data.get("new_org_name") or "").strip()
+    if not name:
+        return Response({"error": "Company name required."}, status=400)
+    org = _bootstrap_org(name, request.user.id)
+    Member.objects.create(org=org, user=request.user, display_name=_member_display_name(request.user), role="ceo", status="active")
+    return Response({"status": "active", "note": f"{name} is founded — you're the CEO. Build your team."})
+
+
+@api_view(["POST"])
+def join_company(request):
+    """Authenticated user requests to join an existing company by its code."""
+    if get_member(request.user):
+        return Response({"error": "You already belong to a company."}, status=400)
     slug = (request.data.get("org_slug") or "").strip().lower()
-    org = Organization.objects.filter(slug=slug).first() if slug else Organization.objects.first()
+    org = Organization.objects.filter(slug=slug).first() if slug else None
     if not org:
-        user.delete()
         return Response({"error": "No company found with that code."}, status=400)
-    Member.objects.create(org=org, user=user, display_name=display or username.title())
-    return Response({"token": token.key, "username": username, "status": "pending",
-                     "note": "Request sent — the CEO will review your enrollment."})
+    Member.objects.create(org=org, user=request.user, display_name=_member_display_name(request.user))
+    return Response({"status": "pending", "note": "Request sent — the CEO will review your enrollment."})
 
 
 @api_view(["GET"])

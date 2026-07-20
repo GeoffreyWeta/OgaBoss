@@ -75,26 +75,23 @@ function ThemePicker({ t, setT }) {
 /* ——— auth ——— */
 
 function Auth({ onDone }) {
-  const [mode, setMode] = useState("login"); // login | join | found
-  const [f, setF] = useState({ username: "", password: "", display_name: "", org_slug: "tryblie", new_org_name: "" });
+  const [mode, setMode] = useState("login"); // login | signup
+  const [f, setF] = useState({ username: "", password: "", display_name: "" });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
   async function go() {
+    if (!f.username || !f.password) return;
     setBusy(true);
     setErr("");
     try {
-      if (mode === "login") {
-        const d = await api("/auth/login/", { method: "POST", body: JSON.stringify({ username: f.username, password: f.password }) });
-        setToken(d.token);
-      } else {
-        const body = { username: f.username, password: f.password, display_name: f.display_name };
-        if (mode === "join") body.org_slug = f.org_slug;
-        else body.new_org_name = f.new_org_name;
-        const d = await api("/auth/register/", { method: "POST", body: JSON.stringify(body) });
-        setToken(d.token);
-      }
+      const path = mode === "login" ? "/auth/login/" : "/auth/register/";
+      const body = mode === "login"
+        ? { username: f.username, password: f.password }
+        : { username: f.username, password: f.password, display_name: f.display_name };
+      const d = await api(path, { method: "POST", body: JSON.stringify(body) });
+      setToken(d.token);
       onDone();
     } catch (e) {
       setErr(e.message);
@@ -107,19 +104,81 @@ function Auth({ onDone }) {
     <div className="login">
       <div className="wordmark big">OgaBoss</div>
       <div className="eyebrow">Your company. Your call.</div>
-      {mode !== "login" && <input className="in" placeholder="Your name" value={f.display_name} onChange={set("display_name")} />}
+      {mode === "signup" && <input className="in" placeholder="Your name" value={f.display_name} onChange={set("display_name")} />}
       <input className="in" placeholder="Username" value={f.username} onChange={set("username")} autoCapitalize="none" />
       <input className="in" type="password" placeholder={mode === "login" ? "Password" : "Password (8+ characters)"} value={f.password} onChange={set("password")} onKeyDown={(e) => e.key === "Enter" && go()} />
-      {mode === "join" && <input className="in" placeholder="Company code" value={f.org_slug} onChange={set("org_slug")} autoCapitalize="none" />}
-      {mode === "found" && <input className="in" placeholder="Company name" value={f.new_org_name} onChange={set("new_org_name")} />}
       {err && <div className="err">{err}</div>}
       <button className="btn coral" onClick={go} disabled={busy || !f.username || !f.password}>
-        {busy ? "…" : mode === "login" ? "Enter the office" : mode === "join" ? "Request to join" : "Found the company"}
+        {busy ? "…" : mode === "login" ? "Enter the office" : "Create account"}
       </button>
       <div className="row" style={{ justifyContent: "center" }}>
-        {mode !== "login" && <button className="btn ghost sm" onClick={() => setMode("login")}>Log in</button>}
-        {mode !== "join" && <button className="btn ghost sm" onClick={() => setMode("join")}>Join a company</button>}
-        {mode !== "found" && <button className="btn ghost sm" onClick={() => setMode("found")}>Found a company</button>}
+        {mode === "login"
+          ? <button className="btn ghost sm" onClick={() => { setErr(""); setMode("signup"); }}>Create an account</button>
+          : <button className="btn ghost sm" onClick={() => { setErr(""); setMode("login"); }}>I already have an account</button>}
+      </div>
+    </div>
+  );
+}
+
+function Onboarding({ onLogout, onDone }) {
+  const [mode, setMode] = useState("choose"); // choose | found | join
+  const [f, setF] = useState({ new_org_name: "", org_slug: "" });
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  async function submit(kind) {
+    setBusy(true);
+    setErr("");
+    try {
+      if (kind === "found") {
+        await api("/company/found/", { method: "POST", body: JSON.stringify({ new_org_name: f.new_org_name }) });
+      } else {
+        await api("/company/join/", { method: "POST", body: JSON.stringify({ org_slug: f.org_slug }) });
+      }
+      onDone();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const backToChoose = () => { setErr(""); setMode("choose"); };
+
+  return (
+    <div className="login">
+      <div className="wordmark big">OgaBoss</div>
+      <div className="eyebrow">Set up your workspace</div>
+
+      {mode === "choose" && (
+        <>
+          <p className="body">Create your own company and run it as CEO, or join one you've been given a code for.</p>
+          <button className="btn coral" onClick={() => { setErr(""); setMode("found"); }}>Create a company</button>
+          <button className="btn ghost" onClick={() => { setErr(""); setMode("join"); }}>Join a company</button>
+        </>
+      )}
+
+      {mode === "found" && (
+        <>
+          <input className="in" placeholder="Company name" value={f.new_org_name} onChange={set("new_org_name")} onKeyDown={(e) => e.key === "Enter" && f.new_org_name && submit("found")} />
+          {err && <div className="err">{err}</div>}
+          <button className="btn coral" onClick={() => submit("found")} disabled={busy || !f.new_org_name}>{busy ? "…" : "Found the company"}</button>
+          <button className="btn ghost sm" onClick={backToChoose}>Back</button>
+        </>
+      )}
+
+      {mode === "join" && (
+        <>
+          <input className="in" placeholder="Company code" value={f.org_slug} onChange={set("org_slug")} autoCapitalize="none" onKeyDown={(e) => e.key === "Enter" && f.org_slug && submit("join")} />
+          {err && <div className="err">{err}</div>}
+          <button className="btn coral" onClick={() => submit("join")} disabled={busy || !f.org_slug}>{busy ? "…" : "Request to join"}</button>
+          <button className="btn ghost sm" onClick={backToChoose}>Back</button>
+        </>
+      )}
+
+      <div className="row" style={{ justifyContent: "center" }}>
+        <button className="btn ghost sm" onClick={onLogout}>Log out</button>
       </div>
     </div>
   );
@@ -1012,6 +1071,7 @@ export default function App() {
 
   if (!authed) return <ThemeCtx.Provider value={theme}><div className="hq"><Auth onDone={() => setAuthed(true)} /></div></ThemeCtx.Provider>;
   if (!me) return <div className="hq"><div className="pad dim" style={{ margin: "auto" }}>Opening HQ…</div></div>;
+  if (!me.status || me.status === "none") return <div className="hq"><Onboarding onLogout={logout} onDone={loadMe} /></div>;
   if (me.status !== "active") return <div className="hq"><Pending onLogout={logout} onRefresh={loadMe} /></div>;
 
   const open = (kind, id) => setDetail({ kind, id });
