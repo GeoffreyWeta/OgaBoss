@@ -97,9 +97,10 @@ def proposal_dict(p, deep=False):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def login_view(request):
-    user = authenticate(
-        username=request.data.get("username", ""), password=request.data.get("password", "")
-    )
+    # Match register(), which stores usernames lowercased, so login is
+    # effectively case-insensitive and "GeoffreyWeta" == "geoffreyweta".
+    username = (request.data.get("username") or "").strip().lower()
+    user = authenticate(username=username, password=request.data.get("password", ""))
     if not user:
         return Response({"error": "Wrong username or password."}, status=status.HTTP_401_UNAUTHORIZED)
     token, _ = Token.objects.get_or_create(user=user)

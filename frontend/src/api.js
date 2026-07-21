@@ -21,11 +21,13 @@ export async function api(path, opts = {}) {
       ...(opts.headers || {}),
     },
   });
-  if (res.status === 401) {
-    setToken("");
-    throw new Error("Session expired — log in again.");
-  }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    // Only a request that carried a token represents an expired session;
+    // a 401 from logging in just means the credentials were wrong.
+    if (getToken()) setToken("");
+    throw new Error(data.error || "Session expired — log in again.");
+  }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }
