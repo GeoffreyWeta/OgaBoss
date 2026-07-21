@@ -44,31 +44,86 @@ function md(text) {
   );
 }
 
-/* ——— theme picker ——— */
+/* ——— brand ——— */
 
-function ThemePicker({ t, setT }) {
-  const [openPanel, setOpenPanel] = useState(false);
+function Logo({ size = 30 }) {
   return (
-    <>
-      <button className="iconbtn" aria-label="Appearance" onClick={() => setOpenPanel(!openPanel)}>◐</button>
-      {openPanel && (
-        <div className="themepanel">
+    <svg className="logo" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="1" y="1" width="30" height="30" rx="8.5" fill="var(--accent)" />
+      <path d="M7.5 22 L7.5 12.5 L12.5 16.5 L16 10 L19.5 16.5 L24.5 12.5 L24.5 22 Z"
+        fill="var(--on-accent)" strokeLinejoin="round" />
+      <rect x="7.5" y="22.6" width="17" height="2.7" rx="1.2" fill="var(--on-accent)" />
+      <circle cx="16" cy="10" r="1.7" fill="var(--on-accent)" />
+    </svg>
+  );
+}
+
+function Brand({ big }) {
+  return (
+    <div className={"brand" + (big ? " brandbig" : "")}>
+      <Logo size={big ? 60 : 30} />
+      <div className={"wordmark" + (big ? " big" : "")}>OgaBoss<span>.</span></div>
+    </div>
+  );
+}
+
+/* ——— gear + settings menu ——— */
+
+function GearIcon({ size = 17 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
+function SettingsMenu({ theme, setTheme, onPassword, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+
+  return (
+    <div className="settingswrap" ref={ref}>
+      <button className={"iconbtn" + (open ? " on" : "")} aria-label="Settings" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <GearIcon />
+      </button>
+      {open && (
+        <div className="settingspanel" role="menu">
+          <div className="setlbl">Appearance</div>
           <div className="modeseg">
-            <button className={t.mode === "light" ? "on" : ""} onClick={() => setT({ ...t, mode: "light" })}>Light</button>
-            <button className={t.mode === "dark" ? "on" : ""} onClick={() => setT({ ...t, mode: "dark" })}>Dark</button>
+            <button className={theme.mode === "light" ? "on" : ""} onClick={() => setTheme({ ...theme, mode: "light" })}>Light</button>
+            <button className={theme.mode === "dark" ? "on" : ""} onClick={() => setTheme({ ...theme, mode: "dark" })}>Dark</button>
           </div>
-          {Object.entries(THEMES).map(([id, th]) => (
-            <button key={id} className={"themeopt " + (t.style === id ? "on" : "")} onClick={() => setT({ ...t, style: id })}>
-              <span className="sw" style={{ background: th[t.mode]["--accent"], borderColor: th[t.mode]["--line"] }} />
-              <span>
-                {th.name}
-                <div className="dim" style={{ fontSize: 11.5 }}>{th.hint}</div>
-              </span>
-            </button>
-          ))}
+          <div className="themegrid">
+            {Object.entries(THEMES).map(([id, th]) => (
+              <button key={id} className={"themeopt " + (theme.style === id ? "on" : "")} onClick={() => setTheme({ ...theme, style: id })}>
+                <span className="sw" style={{ background: th[theme.mode]["--accent"], borderColor: th[theme.mode]["--line"] }} />
+                <span>
+                  {th.name}
+                  <div className="dim" style={{ fontSize: 11.5 }}>{th.hint}</div>
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="setdiv" />
+          <button className="setaction" role="menuitem" onClick={() => { setOpen(false); onPassword(); }}>
+            <span className="setico">🔑</span> Change password
+          </button>
+          <button className="setaction danger" role="menuitem" onClick={() => { setOpen(false); onLogout(); }}>
+            <span className="setico">⏻</span> Log out
+          </button>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -113,7 +168,7 @@ function Auth({ onDone }) {
   if (mode === "forgot") {
     return (
       <div className="login">
-        <div className="wordmark big">OgaBoss</div>
+        <Brand big />
         <div className="eyebrow">Reset your password</div>
         <p className="body">Enter your username or email and we'll send a reset link.</p>
         <input className="in" placeholder="Username or email" value={f.identifier} onChange={set("identifier")} autoCapitalize="none" onKeyDown={(e) => e.key === "Enter" && go()} />
@@ -129,7 +184,7 @@ function Auth({ onDone }) {
 
   return (
     <div className="login">
-      <div className="wordmark big">OgaBoss</div>
+      <Brand big />
       <div className="eyebrow">Your company. Your call.</div>
       {mode === "signup" && <input className="in" placeholder="Your name" value={f.display_name} onChange={set("display_name")} />}
       <input className="in" placeholder="Username" value={f.username} onChange={set("username")} autoCapitalize="none" />
@@ -174,7 +229,7 @@ function ResetPassword({ uid, token, onDone }) {
 
   return (
     <div className="login">
-      <div className="wordmark big">OgaBoss</div>
+      <Brand big />
       <div className="eyebrow">Set a new password</div>
       <input className="in" type="password" placeholder="New password (8+ characters)" value={pw} onChange={(e) => setPw(e.target.value)} />
       <input className="in" type="password" placeholder="Confirm new password" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
@@ -254,7 +309,7 @@ function Onboarding({ onLogout, onDone }) {
 
   return (
     <div className="login">
-      <div className="wordmark big">OgaBoss</div>
+      <Brand big />
       <div className="eyebrow">Set up your workspace</div>
 
       {mode === "choose" && (
@@ -293,7 +348,7 @@ function Onboarding({ onLogout, onDone }) {
 function Pending({ onLogout, onRefresh }) {
   return (
     <div className="login">
-      <div className="wordmark big">OgaBoss</div>
+      <Brand big />
       <div className="eyebrow">Enrollment pending</div>
       <p className="body">Your request is on the CEO's desk. Once approved, your role and department appear here.</p>
       <button className="btn coral" onClick={onRefresh}>Check again</button>
@@ -1272,11 +1327,10 @@ export default function App() {
     <ThemeCtx.Provider value={theme}>
     <div className="hq">
       <div className="top">
-        <div className="wordmark">OgaBoss<span>.</span></div>
-        <div className="eyebrow grow">{me.is_ceo ? "CEO's office" : me.role === "head" ? `Head — ${me.department}` : "Member"}</div>
-        <ThemePicker t={theme} setT={setTheme} />
-        <button className="btn ghost sm" onClick={() => setPwOpen(true)}>Password</button>
-        <button className="btn ghost sm" onClick={logout}>Log out</button>
+        <Brand />
+        <div className="grow" />
+        <div className="eyebrow rolebadge">{me.is_ceo ? "CEO's office" : me.role === "head" ? `Head — ${me.department}` : "Member"}</div>
+        <SettingsMenu theme={theme} setTheme={setTheme} onPassword={() => setPwOpen(true)} onLogout={logout} />
       </div>
       {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
       <div className="content">
