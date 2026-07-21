@@ -92,8 +92,18 @@ EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = True
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "hq@localhost")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "OgaBoss <onboarding@resend.dev>")
 NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL", "")
+
+# Send real email once an SMTP host is configured; otherwise print to the
+# server logs so the app never crashes when email isn't set up yet.
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend" if EMAIL_HOST
+    else "django.core.mail.backends.console.EmailBackend"
+)
+
+# Public URL of the frontend, used to build links inside emails (password reset).
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://ogaboss-app.onrender.com").rstrip("/")
 
 # Engine config
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")

@@ -75,29 +75,56 @@ function ThemePicker({ t, setT }) {
 /* ——— auth ——— */
 
 function Auth({ onDone }) {
-  const [mode, setMode] = useState("login"); // login | signup
-  const [f, setF] = useState({ username: "", password: "", display_name: "" });
+  const [mode, setMode] = useState("login"); // login | signup | forgot
+  const [f, setF] = useState({ username: "", password: "", display_name: "", email: "", identifier: "" });
   const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const switchMode = (m) => { setErr(""); setMsg(""); setMode(m); };
 
   async function go() {
-    if (!f.username || !f.password) return;
     setBusy(true);
     setErr("");
+    setMsg("");
     try {
+      if (mode === "forgot") {
+        if (!f.identifier) { setBusy(false); return; }
+        const d = await api("/auth/password/reset/", { method: "POST", body: JSON.stringify({ identifier: f.identifier }) });
+        setMsg(d.note || "If an account matches, a reset link is on its way.");
+        return;
+      }
+      if (!f.username || !f.password) { setBusy(false); return; }
       const path = mode === "login" ? "/auth/login/" : "/auth/register/";
       const body = mode === "login"
         ? { username: f.username, password: f.password }
-        : { username: f.username, password: f.password, display_name: f.display_name };
+        : { username: f.username, password: f.password, display_name: f.display_name, email: f.email };
       const d = await api(path, { method: "POST", body: JSON.stringify(body) });
       setToken(d.token);
       onDone();
+      return;
     } catch (e) {
       setErr(e.message);
     } finally {
       setBusy(false);
     }
+  }
+
+  if (mode === "forgot") {
+    return (
+      <div className="login">
+        <div className="wordmark big">OgaBoss</div>
+        <div className="eyebrow">Reset your password</div>
+        <p className="body">Enter your username or email and we'll send a reset link.</p>
+        <input className="in" placeholder="Username or email" value={f.identifier} onChange={set("identifier")} autoCapitalize="none" onKeyDown={(e) => e.key === "Enter" && go()} />
+        {err && <div className="err">{err}</div>}
+        {msg && <div className="body sm2" style={{ color: "var(--accent)" }}>{msg}</div>}
+        <button className="btn coral" onClick={go} disabled={busy || !f.identifier}>{busy ? "…" : "Send reset link"}</button>
+        <div className="row" style={{ justifyContent: "center" }}>
+          <button className="btn ghost sm" onClick={() => switchMode("login")}>Back to log in</button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -106,6 +133,7 @@ function Auth({ onDone }) {
       <div className="eyebrow">Your company. Your call.</div>
       {mode === "signup" && <input className="in" placeholder="Your name" value={f.display_name} onChange={set("display_name")} />}
       <input className="in" placeholder="Username" value={f.username} onChange={set("username")} autoCapitalize="none" />
+      {mode === "signup" && <input className="in" type="email" placeholder="Email (for password reset)" value={f.email} onChange={set("email")} autoCapitalize="none" />}
       <input className="in" type="password" placeholder={mode === "login" ? "Password" : "Password (8+ characters)"} value={f.password} onChange={set("password")} onKeyDown={(e) => e.key === "Enter" && go()} />
       {err && <div className="err">{err}</div>}
       <button className="btn coral" onClick={go} disabled={busy || !f.username || !f.password}>
@@ -113,8 +141,86 @@ function Auth({ onDone }) {
       </button>
       <div className="row" style={{ justifyContent: "center" }}>
         {mode === "login"
-          ? <button className="btn ghost sm" onClick={() => { setErr(""); setMode("signup"); }}>Create an account</button>
-          : <button className="btn ghost sm" onClick={() => { setErr(""); setMode("login"); }}>I already have an account</button>}
+          ? <>
+              <button className="btn ghost sm" onClick={() => switchMode("signup")}>Create an account</button>
+              <button className="btn ghost sm" onClick={() => switchMode("forgot")}>Forgot password?</button>
+            </>
+          : <button className="btn ghost sm" onClick={() => switchMode("login")}>I already have an account</button>}
+      </div>
+    </div>
+  );
+}
+
+function ResetPassword({ uid, token, onDone }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (pw.length < 8) { setErr("Password must be at least 8 characters."); return; }
+    if (pw !== pw2) { setErr("Passwords don't match."); return; }
+    setBusy(true);
+    setErr("");
+    try {
+      const d = await api("/auth/password/reset/confirm/", { method: "POST", body: JSON.stringify({ uid, token, new_password: pw }) });
+      if (d.token) setToken(d.token);
+      onDone();
+    } catch (e) {
+      setErr(e.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="login">
+      <div className="wordmark big">OgaBoss</div>
+      <div className="eyebrow">Set a new password</div>
+      <input className="in" type="password" placeholder="New password (8+ characters)" value={pw} onChange={(e) => setPw(e.target.value)} />
+      <input className="in" type="password" placeholder="Confirm new password" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+      {err && <div className="err">{err}</div>}
+      <button className="btn coral" onClick={submit} disabled={busy || !pw || !pw2}>{busy ? "…" : "Save new password"}</button>
+    </div>
+  );
+}
+
+function ChangePasswordModal({ onClose }) {
+  const [cur, setCur] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (pw.length < 8) { setErr("New password must be at least 8 characters."); return; }
+    if (pw !== pw2) { setErr("New passwords don't match."); return; }
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      const d = await api("/auth/password/change/", { method: "POST", body: JSON.stringify({ current_password: cur, new_password: pw }) });
+      if (d.token) setToken(d.token);
+      setMsg("Password updated.");
+      setCur(""); setPw(""); setPw2("");
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }} onClick={onClose}>
+      <div className="login" style={{ margin: 0, paddingBottom: 0 }} onClick={(e) => e.stopPropagation()}>
+        <div className="eyebrow">Change password</div>
+        <input className="in" type="password" placeholder="Current password" value={cur} onChange={(e) => setCur(e.target.value)} />
+        <input className="in" type="password" placeholder="New password (8+ characters)" value={pw} onChange={(e) => setPw(e.target.value)} />
+        <input className="in" type="password" placeholder="Confirm new password" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        {err && <div className="err">{err}</div>}
+        {msg && <div className="body sm2" style={{ color: "var(--accent)" }}>{msg}</div>}
+        <button className="btn coral" onClick={submit} disabled={busy || !cur || !pw || !pw2}>{busy ? "…" : "Update password"}</button>
+        <button className="btn ghost sm" onClick={onClose}>Close</button>
       </div>
     </div>
   );
@@ -1052,6 +1158,18 @@ export default function App() {
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState("desk");
   const [detail, setDetail] = useState(null);
+  const [pwOpen, setPwOpen] = useState(false);
+  const [reset, setReset] = useState(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (url.pathname.replace(/\/+$/, "") === "/reset") {
+        const uid = url.searchParams.get("uid");
+        const token = url.searchParams.get("token");
+        if (uid && token) return { uid, token };
+      }
+    } catch (e) { /* ignore malformed URL */ }
+    return null;
+  });
 
   const loadMe = useCallback(() => {
     if (!getToken()) return;
@@ -1069,6 +1187,7 @@ export default function App() {
     setTab("desk");
   }
 
+  if (reset) return <ThemeCtx.Provider value={theme}><div className="hq"><ResetPassword uid={reset.uid} token={reset.token} onDone={() => { try { window.history.replaceState({}, "", "/"); } catch (e) { /* ignore */ } setReset(null); setAuthed(true); loadMe(); }} /></div></ThemeCtx.Provider>;
   if (!authed) return <ThemeCtx.Provider value={theme}><div className="hq"><Auth onDone={() => setAuthed(true)} /></div></ThemeCtx.Provider>;
   if (!me) return <div className="hq"><div className="pad dim" style={{ margin: "auto" }}>Opening HQ…</div></div>;
   if (!me.status || me.status === "none") return <div className="hq"><Onboarding onLogout={logout} onDone={loadMe} /></div>;
@@ -1089,8 +1208,10 @@ export default function App() {
         <div className="wordmark">OgaBoss<span>.</span></div>
         <div className="eyebrow grow">{me.is_ceo ? "CEO's office" : me.role === "head" ? `Head — ${me.department}` : "Member"}</div>
         <ThemePicker t={theme} setT={setTheme} />
+        <button className="btn ghost sm" onClick={() => setPwOpen(true)}>Password</button>
         <button className="btn ghost sm" onClick={logout}>Log out</button>
       </div>
+      {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
       <div className="content">
         {detail?.kind === "proposal" ? (
           <ProposalView id={detail.id} back={back} me={me} />

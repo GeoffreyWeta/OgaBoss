@@ -7,10 +7,15 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import engine
+from django.conf import settings
 from django.contrib.auth.models import User
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
 
 from django.db.models import Sum
 from django.utils import timezone
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.utils.text import slugify
 
 from .models import (
@@ -279,13 +284,80 @@ def register(request):
     username = (request.data.get("username") or "").strip().lower()
     password = request.data.get("password") or ""
     display = (request.data.get("display_name") or "").strip()
+    email = (request.data.get("email") or "").strip()
     if not username or len(password) < 8:
         return Response({"error": "Username and a password of 8+ characters required."}, status=400)
     if User.objects.filter(username=username).exists():
         return Response({"error": "That username is taken."}, status=400)
-    user = User.objects.create_user(username=username, password=password, first_name=display)
+    if email and User.objects.filter(email__iexact=email).exists():
+        return Response({"error": "That email is already registered."}, status=400)
+    user = User.objects.create_user(username=username, password=password, first_name=display, email=email)
     token, _ = Token.objects.get_or_create(user=user)
     return Response({"token": token.key, "username": username, "status": "none"})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def password_reset(request):
+    """Email a password-reset link. Always returns ok so we never reveal
+    whether an account exists."""
+    ident = (request.data.get("identifier") or "").strip()
+    user = None
+    if ident:
+        user = (User.objects.filter(email__iexact=ident).first()
+                or User.objects.filter(username__iexact=ident).first())
+    if user and user.email:
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        link = f"{settings.FRONTEND_URL}/reset?uid={uid}&token={token}"
+        send_mail(
+            "Reset your OgaBoss password",
+            f"Hi {user.first_name or user.username},\n\n"
+            f"Click the link below to set a new password:\n{link}\n\n"
+            "If you didn't request this, you can safely ignore this email.",
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email],
+            fail_silently=True,
+        )
+    return Response({"ok": True, "note": "If an account matches, a reset link is on its way."})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def password_reset_confirm(request):
+    """Validate the emailed token and set a new password."""
+    uidb64 = request.data.get("uid") or ""
+    token = request.data.get("token") or ""
+    new_password = request.data.get("new_password") or ""
+    if len(new_password) < 8:
+        return Response({"error": "Password must be at least 8 characters."}, status=400)
+    try:
+        user = User.objects.get(pk=force_str(urlsafe_base64_decode(uidb64)))
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        user = None
+    if not user or not default_token_generator.check_token(user, token):
+        return Response({"error": "This reset link is invalid or has expired."}, status=400)
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+    Token.objects.filter(user=user).delete()  # invalidate old sessions
+    new_token, _ = Token.objects.get_or_create(user=user)
+    return Response({"ok": True, "token": new_token.key, "username": user.username})
+
+
+@api_view(["POST"])
+def password_change(request):
+    """Change the password of the logged-in user."""
+    current = request.data.get("current_password") or ""
+    new_password = request.data.get("new_password") or ""
+    if not request.user.check_password(current):
+        return Response({"error": "Current password is incorrect."}, status=400)
+    if len(new_password) < 8:
+        return Response({"error": "New password must be at least 8 characters."}, status=400)
+    request.user.set_password(new_password)
+    request.user.save(update_fields=["password"])
+    Token.objects.filter(user=request.user).delete()
+    new_token, _ = Token.objects.get_or_create(user=request.user)
+    return Response({"ok": True, "token": new_token.key})
 
 
 def _member_display_name(user):
