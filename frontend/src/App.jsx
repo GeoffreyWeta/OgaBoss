@@ -371,8 +371,24 @@ function Desk({ open, me }) {
   const [directive, setDirective] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [ideas, setIdeas] = useState([]);
+  const [ideaBusy, setIdeaBusy] = useState(false);
 
   const load = useCallback(() => api("/desk/").then(setData).catch(() => {}), []);
+
+  async function suggestIdeas() {
+    setIdeaBusy(true);
+    setNote("");
+    try {
+      const d = await api("/assist/ideas/", { method: "POST", body: JSON.stringify({ seed: directive }) });
+      setIdeas(d.ideas || []);
+      if (!d.ideas || d.ideas.length === 0) setNote("No ideas came back — try adding a hint above.");
+    } catch (e) {
+      setNote(e.message);
+    } finally {
+      setIdeaBusy(false);
+    }
+  }
   useEffect(() => {
     load();
     const t = setInterval(load, 8000);
@@ -437,8 +453,20 @@ function Desk({ open, me }) {
             onChange={(e) => setDirective(e.target.value)} />
           <div className="row">
             <button className="btn coral" onClick={sendDirective} disabled={busy || !directive.trim()}>{S.send}</button>
+            <button className="btn ghost" onClick={suggestIdeas} disabled={ideaBusy}>{ideaBusy ? "Thinking…" : "💡 Suggest ideas"}</button>
             <button className="btn ghost" onClick={daily} disabled={busy}>{S.daily}</button>
           </div>
+          {ideas.length > 0 && (
+            <div className="items" style={{ marginTop: 8 }}>
+              {ideas.map((idea, i) => (
+                <button key={i} className="subcard" style={{ textAlign: "left", width: "100%", cursor: "pointer" }}
+                  onClick={() => { setDirective(idea); setIdeas([]); }}>
+                  <span className="grow">{idea}</span>
+                  <span className="dim" style={{ fontSize: 11.5 }}>use →</span>
+                </button>
+              ))}
+            </div>
+          )}
           {note && <div className="note">{note}</div>}
         </div>
       )}
@@ -748,6 +776,8 @@ function AgentEditor({ id, back }) {
   const [cap, setCap] = useState({ kind: "data_source", label: "", url: "", auth_header: "", notes: "" });
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [brief, setBrief] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
 
   useEffect(() => {
     api("/org/").then((d) => setAll(d.agents)).catch(() => {});
@@ -761,6 +791,31 @@ function AgentEditor({ id, back }) {
   if (!a) return <div className="pad dim">Loading…</div>;
   const set = (k) => (e) => setA({ ...a, [k]: e.target.value });
   const toggle = (k) => () => setA({ ...a, [k]: !a[k] });
+
+  async function draftAgent() {
+    if (!brief.trim()) return;
+    setAiBusy(true);
+    setNote("");
+    try {
+      const d = await api("/assist/agent/", { method: "POST", body: JSON.stringify({ brief }) });
+      setA((prev) => ({
+        ...prev,
+        name: d.name || prev.name,
+        role: d.role || prev.role,
+        department: d.department || prev.department,
+        mandate: d.mandate || prev.mandate,
+        persona: d.persona || prev.persona,
+        shape: d.shape || prev.shape,
+        is_head: d.is_head,
+        proactive: d.proactive,
+      }));
+      setNote("Draft ready — tweak anything, then hire.");
+    } catch (e) {
+      setNote(e.message);
+    } finally {
+      setAiBusy(false);
+    }
+  }
 
   async function save() {
     setBusy(true);
@@ -838,6 +893,18 @@ function AgentEditor({ id, back }) {
       <button className="btn ghost sm" onClick={back}>← Team</button>
       <h2 className="h2">{isNew ? "Hire a new agent" : `${a.name} — dossier`}</h2>
       {a.is_human && <div className="note">This is a real person's seat — edit the title, not the mind.</div>}
+
+      {!a.is_human && (
+        <div className="subcard" style={{ display: "block", marginTop: 8, marginBottom: 4 }}>
+          <div className="fieldlbl" style={{ marginTop: 0 }}>✨ Let AI draft this role</div>
+          <input className="in" value={brief} onChange={(e) => setBrief(e.target.value)}
+            placeholder="Describe it — e.g. someone to run our Lagos social media"
+            onKeyDown={(e) => e.key === "Enter" && draftAgent()} />
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="btn ghost" onClick={draftAgent} disabled={aiBusy || !brief.trim()}>{aiBusy ? "Drafting…" : "Draft with AI"}</button>
+          </div>
+        </div>
+      )}
 
       <div className="fieldlbl">Name</div>
       <input className="in" value={a.name} onChange={set("name")} />

@@ -14,6 +14,8 @@ urlpatterns = [
     path("members/<int:pk>/", views.member_update),
     path("agents/", views.agent_create),
     path("agents/<int:pk>/", views.agent_detail),
+    path("assist/agent/", views.assist_agent),
+    path("assist/ideas/", views.assist_ideas),
     path("desk/", views.desk),
     path("org/", views.org_chart),
     path("constitution/", views.constitution),

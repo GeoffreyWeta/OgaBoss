@@ -487,6 +487,70 @@ def agent_detail(request, pk):
     return Response(agent_dict(a))
 
 
+@api_view(["POST"])
+def assist_agent(request):
+    """AI drafts a full agent spec from a one-line brief, fitted to the company."""
+    if not is_ceo(request):
+        return Response({"error": "CEO only."}, status=403)
+    org = get_org(request)
+    brief = (request.data.get("brief") or "").strip()
+    if not brief:
+        return Response({"error": "Describe the role you want."}, status=400)
+    shapes = ["circle", "diamond", "square", "chevron", "triad"]
+    const = getattr(org, "constitution", None)
+    const_text = const.content if const else ""
+    system = (
+        f"You design world-class team members for {org.name}. From the CEO's short brief, "
+        "produce ONE agent spec that fits the company and complements the existing team. "
+        "The persona must be vivid and specific — expertise, background, perspective, how they work. "
+        f"shape is one of: {', '.join(shapes)}. "
+        'Respond ONLY with JSON: {"name": str (a realistic first name), "role": str, '
+        '"department": str, "mandate": str (one line), "persona": str (2-4 sentences), '
+        '"shape": str, "is_head": bool, "proactive": bool}'
+    )
+    prompt = f"COMPANY CONSTITUTION:\n{const_text}\n\nEXISTING TEAM:\n{engine.roster_text(org)}\n\nCEO WANTS:\n{brief}"
+    try:
+        data = engine.parse_json(engine.call_llm(system, [{"role": "user", "content": prompt}], 800, org=org, purpose="assist_agent"))
+    except Exception as e:
+        return Response({"error": f"AI is unavailable right now ({e})."}, status=502)
+    shape = data.get("shape") if data.get("shape") in shapes else "circle"
+    return Response({
+        "name": (data.get("name") or "").strip(),
+        "role": (data.get("role") or "").strip(),
+        "department": (data.get("department") or "").strip(),
+        "mandate": (data.get("mandate") or "").strip(),
+        "persona": (data.get("persona") or "").strip(),
+        "shape": shape,
+        "is_head": bool(data.get("is_head")),
+        "proactive": bool(data.get("proactive")),
+    })
+
+
+@api_view(["POST"])
+def assist_ideas(request):
+    """AI proposes concrete directive ideas tailored to the company."""
+    if not is_ceo(request):
+        return Response({"error": "CEO only."}, status=403)
+    org = get_org(request)
+    seed = (request.data.get("seed") or "").strip()
+    const = getattr(org, "constitution", None)
+    const_text = const.content if const else ""
+    system = (
+        f"You are the strategist for {org.name}. Propose concrete, high-leverage next moves the CEO "
+        "could direct the team to pursue. Each idea is one actionable directive, specific to this "
+        "company, phrased as an instruction the team can run with immediately. "
+        'Respond ONLY with JSON: {"ideas": [str, str, str, str]} (4 ideas, each under 25 words).'
+    )
+    focus = f"\n\nThe CEO is currently thinking about: {seed}" if seed else ""
+    prompt = f"COMPANY CONSTITUTION:\n{const_text}\n{engine.memory_context(org)}{focus}\n\nGive four ideas."
+    try:
+        data = engine.parse_json(engine.call_llm(system, [{"role": "user", "content": prompt}], 700, model=settings.ENGINE_MODEL_FAST, org=org, purpose="assist_ideas"))
+    except Exception as e:
+        return Response({"error": f"AI is unavailable right now ({e})."}, status=502)
+    ideas = [str(x).strip() for x in (data.get("ideas") or []) if str(x).strip()][:6]
+    return Response({"ideas": ideas})
+
+
 @api_view(["POST", "GET"])
 def meetings(request):
     org = get_org(request)
