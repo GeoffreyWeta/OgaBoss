@@ -2,7 +2,7 @@
 // VITE_API_URL isn't set at build time; locally fall back to the dev server.
 const BASE =
   import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD ? "https://ogaboss-api.onrender.com" : "http://localhost:8000");
+  (import.meta.env.PROD ? "https://aihq-api.onrender.com" : "http://localhost:8000");
 
 export function getToken() {
   return localStorage.getItem("hq_token") || "";
