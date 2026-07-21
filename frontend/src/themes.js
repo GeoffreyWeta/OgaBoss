@@ -2,8 +2,8 @@
    each theme also picks a layout system and its own voice (strings). */
 
 const base = {
-  "--font-body": "'Instrument Sans', system-ui, sans-serif",
-  "--font-display": "'Instrument Sans', system-ui, sans-serif",
+  "--font-body": "'Plus Jakarta Sans', system-ui, sans-serif",
+  "--font-display": "'Bricolage Grotesque', system-ui, sans-serif",
   "--font-label": "'Spline Sans Mono', monospace",
   "--lbl-transform": "uppercase",
   "--lbl-spacing": "2px",
