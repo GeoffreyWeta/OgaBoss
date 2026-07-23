@@ -45,7 +45,7 @@ def _raise_for_provider(resp, provider):
         code = err.get("code") or err.get("type") or ""
     except Exception:
         pass
-    label = "OpenAI" if provider == "openai" else "Anthropic"
+    label = {"openai": "OpenAI", "anthropic": "Anthropic", "image": "Image API"}.get(provider, provider.title())
     tag = f" [{code}]" if code else ""
     hint = ""
     if resp.status_code == 429:
@@ -90,6 +90,44 @@ def openai_model_for(cfg, fast):
     if custom:
         return custom
     return settings.OPENAI_MODEL_FAST if fast else settings.OPENAI_MODEL
+
+
+def image_config(cfg=None):
+    """Resolve the image-generation endpoint/key/model (UI overrides env)."""
+    cfg = cfg if cfg is not None else _provider_cfg()
+    base = ((cfg.image_base_url if cfg else "") or settings.IMAGE_BASE_URL or "https://api.openai.com/v1").strip().rstrip("/")
+    endpoint = base if base.endswith("/images/generations") else base + "/images/generations"
+    return {
+        "key": ((cfg.image_key if cfg else "") or settings.IMAGE_API_KEY or "").strip(),
+        "endpoint": endpoint,
+        "model": (cfg.image_model if cfg else "") or settings.IMAGE_MODEL,
+        "size": (cfg.image_size if cfg else "") or settings.IMAGE_SIZE or "1024x1024",
+    }
+
+
+def image_available(cfg=None):
+    return bool(image_config(cfg)["key"])
+
+
+def generate_image(prompt, cfg=None, org=None, agent=None):
+    """Generate one image and return it as a data URI (or a hosted URL if the
+    provider returns one). Uses the OpenAI /images/generations request shape."""
+    ic = image_config(cfg)
+    if not ic["key"]:
+        raise RuntimeError("No image provider is configured.")
+    resp = requests.post(
+        ic["endpoint"],
+        headers={"Authorization": f"Bearer {ic['key']}", "Content-Type": "application/json"},
+        json={"model": ic["model"], "prompt": prompt, "n": 1, "size": ic["size"]},
+        timeout=180,
+    )
+    _raise_for_provider(resp, "image")
+    item = (resp.json().get("data") or [{}])[0]
+    if item.get("b64_json"):
+        return f"data:image/png;base64,{item['b64_json']}"
+    if item.get("url"):
+        return item["url"]
+    raise RuntimeError("The image API returned no image.")
 
 
 def active_provider(cfg=None):
@@ -252,7 +290,7 @@ def capability_context(agent):
                     k, v = cap.auth_header.split(":", 1)
                     headers[k.strip()] = v.strip()
                 r = requests.get(cap.url, headers=headers, timeout=15)
-                body = r.text[:6000]
+                body = r.text[:20000]
                 chunks.append(f"[Live data — {cap.label} ({cap.url})]\n{body}")
             except Exception as e:  # data being down shouldn't kill a deliberation
                 chunks.append(f"[Live data — {cap.label}] UNAVAILABLE ({e})")
@@ -365,26 +403,48 @@ def run_revision(proposal_id):
         prop.save(update_fields=["status"])
 
 
-ARTIFACT_INSTRUCTIONS = (
-    "Now execute the approved proposal and produce the actual deliverable, not a description of it.\n"
-    "- If the work is visual (flyer, graphic, card, page): kind='html' — a single complete self-contained HTML document "
-    "with inline CSS, real copy, mobile-sized (majority of viewers are on phones). Use the company's brand colors if the constitution names them.\n"
-    "- If the work is writing (post, script, email, plan, analysis): kind='markdown'.\n"
-    'Respond ONLY with JSON: {"kind": "html"|"markdown"|"text", "title": str, "content": str}'
-)
+def artifact_instructions(image_ok):
+    """Deliverable format menu. The generated-photo option only appears when an
+    image provider is configured, so the model never promises what we can't do."""
+    kinds = '"html"|"markdown"|"text"' + ('|"image"' if image_ok else "")
+    lines = [
+        "Now execute the approved proposal and produce the actual deliverable, not a description of it.",
+        "- If the work is a design that can be built with HTML/CSS (flyer, graphic, card, page): kind='html' — "
+        "a single complete self-contained HTML document with inline CSS, real copy, mobile-sized "
+        "(majority of viewers are on phones). Use the company's brand colors if the constitution names them.",
+        "- If the work is writing (post, script, email, plan, analysis): kind='markdown'.",
+    ]
+    if image_ok:
+        lines.append(
+            "- If the work genuinely needs a generated photo or illustration (something HTML/CSS can't draw): "
+            "kind='image', and put a vivid, detailed image-generation prompt in a 'prompt' field."
+        )
+    prompt_field = ', "prompt": str (only when kind=image)' if image_ok else ""
+    lines.append(f'Respond ONLY with JSON: {{"kind": {kinds}, "title": str, "content": str{prompt_field}}}')
+    return "\n".join(lines)
 
 
 def run_execution(proposal_id):
     prop = Proposal.objects.get(id=proposal_id)
     try:
         agent = prop.assigned_to or prop.proposed_by
+        cfg = _provider_cfg()
+        image_ok = image_available(cfg)
         context = f"Approved proposal: {prop.title}\n{prop.summary}"
         if prop.ceo_feedback:
             context += f"\nCEO notes: {prop.ceo_feedback}"
-        data = parse_json(call_llm(agent_system(agent, ARTIFACT_INSTRUCTIONS), [{"role": "user", "content": context}], 4000, web_search=agent_can_search(agent), agent=agent, purpose="execution"))
+        data = parse_json(call_llm(agent_system(agent, artifact_instructions(image_ok)), [{"role": "user", "content": context}], 4000, web_search=agent_can_search(agent), agent=agent, purpose="execution"))
+        kind = data.get("kind", "markdown")
+        if kind == "image" and image_ok:
+            prompt = data.get("prompt") or data.get("content") or f"{prop.title}. {prop.summary}"
+            content = generate_image(prompt, cfg=cfg, org=prop.org, agent=agent)
+        else:
+            if kind == "image":  # asked for an image but no provider — degrade gracefully
+                kind = "markdown"
+            content = data.get("content", "")
         Artifact.objects.create(
-            proposal=prop, agent=agent, kind=data.get("kind", "markdown"),
-            title=data.get("title", prop.title), content=data.get("content", ""),
+            proposal=prop, agent=agent, kind=kind,
+            title=data.get("title", prop.title), content=content,
         )
         prop.status = "artifact_pending"
         prop.save(update_fields=["status"])

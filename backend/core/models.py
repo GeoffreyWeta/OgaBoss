@@ -124,7 +124,7 @@ class Proposal(models.Model):
 
 
 class Artifact(models.Model):
-    KINDS = [("html", "html"), ("markdown", "markdown"), ("text", "text")]
+    KINDS = [("html", "html"), ("markdown", "markdown"), ("text", "text"), ("image", "image")]
     STATUS = [("pending", "pending"), ("approved", "approved"), ("rejected", "rejected")]
     proposal = models.ForeignKey(Proposal, on_delete=models.CASCADE, related_name="artifacts")
     agent = models.ForeignKey(Agent, null=True, on_delete=models.SET_NULL)
@@ -203,6 +203,12 @@ class ProviderConfig(models.Model):
     # free provider (Groq, OpenRouter, Gemini compat, …). Blank = use defaults.
     openai_base_url = models.TextField(blank=True, default="")
     openai_model = models.CharField(max_length=120, blank=True, default="")
+    # Image generation (OpenAI /images/generations shape). Separate from the
+    # text brain since most free text providers can't make images.
+    image_key = models.TextField(blank=True, default="")
+    image_base_url = models.TextField(blank=True, default="")
+    image_model = models.CharField(max_length=120, blank=True, default="")
+    image_size = models.CharField(max_length=20, blank=True, default="")
     updated_by = models.CharField(max_length=150, blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
 

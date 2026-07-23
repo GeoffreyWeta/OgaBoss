@@ -133,6 +133,14 @@ OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 OPENAI_MODEL_FAST = os.environ.get("OPENAI_MODEL_FAST", "gpt-4o-mini")
 
+# Image generation (separate from the text brain — most free text providers
+# can't make images). Uses the OpenAI /images/generations shape, so it works
+# with OpenAI or any compatible image API. Key/base/model also settable in UI.
+IMAGE_API_KEY = os.environ.get("IMAGE_API_KEY", "")
+IMAGE_BASE_URL = os.environ.get("IMAGE_BASE_URL", "https://api.openai.com/v1")
+IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "gpt-image-1")
+IMAGE_SIZE = os.environ.get("IMAGE_SIZE", "1024x1024")
+
 # Who may switch the live AI provider. This is the app operator/owner, not the
 # org's CEO — by default only Geoffrey. Override with a comma-separated list of
 # usernames (case-insensitive). Django superusers can always switch.

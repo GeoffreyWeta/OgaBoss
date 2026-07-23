@@ -316,6 +316,20 @@ def _provider_status(pid, cfg, reveal_hint):
     return status
 
 
+def _image_status(cfg, reveal):
+    ic = engine.image_config(cfg)
+    key = ic["key"]
+    return {
+        "configured": bool(key),
+        "saved": bool(cfg.image_key or ""),
+        "hint": (("…" + key[-4:]) if (key and reveal) else ""),
+        "base_url": (cfg.image_base_url or "") if reveal else "",
+        "base_url_effective": ic["endpoint"],
+        "model": ic["model"],
+        "size": ic["size"],
+    }
+
+
 @api_view(["GET", "POST"])
 def provider_config(request):
     """Read the live AI provider and set its keys; only an authorized operator
@@ -342,6 +356,17 @@ def provider_config(request):
         if "openai_model" in request.data:
             cfg.openai_model = (request.data.get("openai_model") or "").strip()
             changed = True
+        # Save image-generation settings.
+        if "image_api_key" in request.data:
+            v = (request.data.get("image_api_key") or "").strip()
+            if v and len(v) < 20:
+                return Response({"error": "That API key looks too short — double-check the paste."}, status=400)
+            cfg.image_key = v
+            changed = True
+        for param in ("image_base_url", "image_model", "image_size"):
+            if param in request.data:
+                setattr(cfg, param, (request.data.get(param) or "").strip())
+                changed = True
         # Switch the live provider.
         p = request.data.get("provider")
         if p is not None:
@@ -360,6 +385,7 @@ def provider_config(request):
         "updated_by": cfg.updated_by if allowed else "",
         "updated_at": cfg.updated_at.isoformat() if cfg.updated_at else None,
         "providers": [_provider_status(pid, cfg, allowed) for pid in ("anthropic", "openai")],
+        "image": _image_status(cfg, allowed),
     })
 
 

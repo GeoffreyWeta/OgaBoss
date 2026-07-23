@@ -96,6 +96,9 @@ function SettingsMenu({ theme, setTheme, onPassword, onLogout, canSwitch }) {
   const [keyDrafts, setKeyDrafts] = useState({});
   const [oaBase, setOaBase] = useState("");
   const [oaModel, setOaModel] = useState("");
+  const [imgBase, setImgBase] = useState("");
+  const [imgModel, setImgModel] = useState("");
+  const [imgSize, setImgSize] = useState("");
   const ref = useRef(null);
   useEffect(() => {
     if (!open) return;
@@ -111,6 +114,7 @@ function SettingsMenu({ theme, setTheme, onPassword, onLogout, canSwitch }) {
   useEffect(() => {
     const oa = prov && prov.providers.find((p) => p.id === "openai");
     if (oa) { setOaBase(oa.base_url || ""); setOaModel(oa.model || ""); }
+    if (prov && prov.image) { setImgBase(prov.image.base_url || ""); setImgModel(prov.image.model || ""); setImgSize(prov.image.size || ""); }
   }, [prov]);
 
   async function switchProvider(id) {
@@ -157,6 +161,23 @@ function SettingsMenu({ theme, setTheme, onPassword, onLogout, canSwitch }) {
       if (key) body.openai_api_key = key; // only send when set, so we never clear it
       setProv(await api("/provider/", { method: "POST", body: JSON.stringify(body) }));
       setKeyDrafts((k) => ({ ...k, openai: "" }));
+    } catch (e) {
+      setProvErr(e.message);
+    } finally {
+      setProvBusy(false);
+    }
+  }
+
+  async function saveImage() {
+    if (provBusy) return;
+    setProvBusy(true);
+    setProvErr("");
+    try {
+      const body = { image_base_url: imgBase.trim(), image_model: imgModel.trim(), image_size: imgSize.trim() };
+      const key = (keyDrafts.image || "").trim();
+      if (key) body.image_api_key = key;
+      setProv(await api("/provider/", { method: "POST", body: JSON.stringify(body) }));
+      setKeyDrafts((k) => ({ ...k, image: "" }));
     } catch (e) {
       setProvErr(e.message);
     } finally {
@@ -265,6 +286,38 @@ function SettingsMenu({ theme, setTheme, onPassword, onLogout, canSwitch }) {
                   })()}
                   <div className="note" style={{ marginTop: 8, fontSize: 11.5 }}>
                     Keys live on your server — shown only as the last 4 digits. Free test: tap <b>Groq</b>, paste your Groq key, confirm the model, Save, then flip the toggle to OpenAI.
+                  </div>
+
+                  <div className="setdiv" />
+                  <div className="setlbl">Image generation</div>
+                  {(() => {
+                    const img = prov.image || {};
+                    return (
+                      <div className="keyrow">
+                        <div className="keyhead">
+                          <span>Image API</span>
+                          <span className="dim">{img.configured ? `✓ saved${img.hint ? " " + img.hint : ""}` : "not set"}</span>
+                        </div>
+                        <input className="in" type="password" autoComplete="off"
+                          placeholder={img.configured ? "Replace image API key…" : "Paste image API key"}
+                          value={keyDrafts.image || ""}
+                          onChange={(e) => setKeyDrafts((k) => ({ ...k, image: e.target.value }))} />
+                        <input className="in" style={{ marginTop: 6 }} placeholder="Base URL (blank = OpenAI)"
+                          value={imgBase} onChange={(e) => setImgBase(e.target.value)} />
+                        <div className="keyinput" style={{ marginTop: 6 }}>
+                          <input className="in grow" placeholder="Model (e.g. gpt-image-1)"
+                            value={imgModel} onChange={(e) => setImgModel(e.target.value)} />
+                          <input className="in" style={{ maxWidth: 108 }} placeholder="1024x1024"
+                            value={imgSize} onChange={(e) => setImgSize(e.target.value)} />
+                        </div>
+                        <div className="keyinput" style={{ marginTop: 6, justifyContent: "flex-end" }}>
+                          <button className="btn coral sm" disabled={provBusy} onClick={saveImage}>Save</button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  <div className="note" style={{ marginTop: 8, fontSize: 11.5 }}>
+                    Needs an image-capable API (e.g. OpenAI <code>gpt-image-1</code>) — free text providers like Groq can't make images. Once set, agents produce real pictures for visual work.
                   </div>
                   {provErr && <div className="err" style={{ marginTop: 6 }}>{provErr}</div>}
                 </>
@@ -777,6 +830,8 @@ function ProposalView({ id, back, me }) {
           <div className="nm">{a.title}</div>
           {a.kind === "html" ? (
             <iframe className="artframe" sandbox="" srcDoc={a.content} title={a.title} />
+          ) : a.kind === "image" ? (
+            <a href={a.content} target="_blank" rel="noreferrer"><img className="artimg" src={a.content} alt={a.title} /></a>
           ) : (
             <pre className="artpre">{a.content}</pre>
           )}
