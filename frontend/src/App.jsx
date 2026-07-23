@@ -79,8 +79,12 @@ function GearIcon({ size = 17 }) {
   );
 }
 
-function SettingsMenu({ theme, setTheme, onPassword, onLogout }) {
+function SettingsMenu({ theme, setTheme, onPassword, onLogout, canSwitch }) {
   const [open, setOpen] = useState(false);
+  const [prov, setProv] = useState(null);
+  const [provBusy, setProvBusy] = useState(false);
+  const [provErr, setProvErr] = useState("");
+  const [keyDrafts, setKeyDrafts] = useState({});
   const ref = useRef(null);
   useEffect(() => {
     if (!open) return;
@@ -90,6 +94,40 @@ function SettingsMenu({ theme, setTheme, onPassword, onLogout }) {
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
   }, [open]);
+  useEffect(() => {
+    if (open && canSwitch && !prov) api("/provider/").then(setProv).catch(() => {});
+  }, [open, canSwitch, prov]);
+
+  async function switchProvider(id) {
+    if (provBusy || (prov && prov.provider === id)) return;
+    setProvBusy(true);
+    setProvErr("");
+    try {
+      setProv(await api("/provider/", { method: "POST", body: JSON.stringify({ provider: id }) }));
+    } catch (e) {
+      setProvErr(e.message);
+    } finally {
+      setProvBusy(false);
+    }
+  }
+
+  async function saveKey(id) {
+    const val = (keyDrafts[id] || "").trim();
+    if (!val || provBusy) return;
+    setProvBusy(true);
+    setProvErr("");
+    try {
+      const param = id === "openai" ? "openai_api_key" : "anthropic_api_key";
+      setProv(await api("/provider/", { method: "POST", body: JSON.stringify({ [param]: val }) }));
+      setKeyDrafts((k) => ({ ...k, [id]: "" }));
+    } catch (e) {
+      setProvErr(e.message);
+    } finally {
+      setProvBusy(false);
+    }
+  }
+
+  const activeModel = prov && (prov.providers.find((p) => p.id === prov.provider)?.model || prov.provider);
 
   return (
     <div className="settingswrap" ref={ref}>
@@ -114,6 +152,59 @@ function SettingsMenu({ theme, setTheme, onPassword, onLogout }) {
               </button>
             ))}
           </div>
+
+          {canSwitch && (
+            <>
+              <div className="setdiv" />
+              <div className="setlbl">AI Provider <span className="ownertag">owner</span></div>
+              {!prov ? (
+                <div className="note" style={{ padding: "0 2px 2px" }}>Loading…</div>
+              ) : (
+                <>
+                  <div className="modeseg">
+                    {prov.providers.map((p) => (
+                      <button key={p.id} className={prov.provider === p.id ? "on" : ""}
+                        disabled={provBusy || !p.configured}
+                        title={p.configured ? p.model : "Add this provider's API key below first"}
+                        onClick={() => switchProvider(p.id)}>
+                        {p.id === "openai" ? "OpenAI" : "Anthropic"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="note" style={{ marginTop: 8 }}>
+                    {provBusy ? "Working…" : `Every agent thinks on ${activeModel}.`}
+                  </div>
+
+                  {prov.providers.map((p) => (
+                    <div key={p.id} className="keyrow">
+                      <div className="keyhead">
+                        <span>{p.id === "openai" ? "OpenAI" : "Anthropic"} key</span>
+                        <span className="dim">
+                          {p.configured
+                            ? `✓ ${p.source === "env" ? "from server" : "saved"}${p.hint ? " " + p.hint : ""}`
+                            : "not set"}
+                        </span>
+                      </div>
+                      <div className="keyinput">
+                        <input className="in grow" type="password" autoComplete="off"
+                          placeholder={p.configured ? "Replace key…" : `Paste ${p.id === "openai" ? "sk-…" : "key"}`}
+                          value={keyDrafts[p.id] || ""}
+                          onChange={(e) => setKeyDrafts((k) => ({ ...k, [p.id]: e.target.value }))}
+                          onKeyDown={(e) => e.key === "Enter" && saveKey(p.id)} />
+                        <button className="btn coral sm" disabled={provBusy || !(keyDrafts[p.id] || "").trim()}
+                          onClick={() => saveKey(p.id)}>Save</button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="note" style={{ marginTop: 8, fontSize: 11.5 }}>
+                    Keys are stored on your server and never shown again — only the last 4 digits.
+                  </div>
+                  {provErr && <div className="err" style={{ marginTop: 6 }}>{provErr}</div>}
+                </>
+              )}
+            </>
+          )}
+
           <div className="setdiv" />
           <button className="setaction" role="menuitem" onClick={() => { setOpen(false); onPassword(); }}>
             <span className="setico">🔑</span> Change password
@@ -1330,7 +1421,7 @@ export default function App() {
         <Brand />
         <div className="grow" />
         <div className="eyebrow rolebadge">{me.is_ceo ? "CEO's office" : me.role === "head" ? `Head — ${me.department}` : "Member"}</div>
-        <SettingsMenu theme={theme} setTheme={setTheme} onPassword={() => setPwOpen(true)} onLogout={logout} />
+        <SettingsMenu theme={theme} setTheme={setTheme} onPassword={() => setPwOpen(true)} onLogout={logout} canSwitch={!!me.can_switch_provider} />
       </div>
       {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
       <div className="content">

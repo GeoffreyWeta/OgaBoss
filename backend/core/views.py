@@ -20,7 +20,7 @@ from django.utils.text import slugify
 
 from .models import (
     Agent, ApprovalPolicy, Artifact, Capability, ChatMessage, Constitution, Deliberation,
-    Directive, Member, Organization, Proposal, StandingOrder, UsageRecord,
+    Directive, Member, Organization, ProviderConfig, Proposal, StandingOrder, UsageRecord,
 )
 
 
@@ -29,6 +29,16 @@ def get_member(user):
         return user.membership
     except Member.DoesNotExist:
         return None
+
+
+def can_switch_provider(user):
+    """The AI-provider switch belongs to the app operator (by default only
+    Geoffrey — see settings.PROVIDER_ADMINS), not to every org's CEO."""
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    return (user.username or "").lower() in settings.PROVIDER_ADMINS
 
 
 def is_ceo(request):
@@ -273,6 +283,68 @@ def me(request):
         "department": m.department if m else "",
         "status": m.status if m else None,
         "is_ceo": bool(m and m.role == "ceo" and m.status == "active"),
+        "can_switch_provider": can_switch_provider(request.user),
+    })
+
+
+PROVIDER_META = {
+    "anthropic": {"name": "Anthropic (Claude)", "key_field": "anthropic_key", "model_setting": "ENGINE_MODEL"},
+    "openai": {"name": "OpenAI (GPT)", "key_field": "openai_key", "model_setting": "OPENAI_MODEL"},
+}
+
+
+def _provider_status(pid, cfg, reveal_hint):
+    """Masked, safe-to-serialize status for one provider — never the raw key."""
+    saved = getattr(cfg, PROVIDER_META[pid]["key_field"]) or ""
+    eff = engine.provider_key(pid, cfg)
+    return {
+        "id": pid,
+        "name": PROVIDER_META[pid]["name"],
+        "model": getattr(settings, PROVIDER_META[pid]["model_setting"]),
+        "configured": bool(eff),
+        "saved": bool(saved),  # a key was entered through the UI (vs. env only)
+        "source": "saved" if saved else ("env" if eff else None),
+        "hint": (("…" + eff[-4:]) if (eff and reveal_hint) else ""),
+    }
+
+
+@api_view(["GET", "POST"])
+def provider_config(request):
+    """Read the live AI provider and set its keys; only an authorized operator
+    (Geoffrey / a superuser) may switch providers or save keys. Raw keys are
+    never returned — only a masked '…last4' hint, and only to that operator."""
+    allowed = can_switch_provider(request.user)
+    cfg = ProviderConfig.get_solo()
+    if request.method == "POST":
+        if not allowed:
+            return Response({"error": "Only Geoffrey can change the AI provider."}, status=403)
+        changed = False
+        # Save (or clear, with an empty string) API keys entered in the UI.
+        for pid, param in (("openai", "openai_api_key"), ("anthropic", "anthropic_api_key")):
+            if param in request.data:
+                v = (request.data.get(param) or "").strip()
+                if v and len(v) < 20:
+                    return Response({"error": "That API key looks too short — double-check the paste."}, status=400)
+                setattr(cfg, PROVIDER_META[pid]["key_field"], v)
+                changed = True
+        # Switch the live provider.
+        p = request.data.get("provider")
+        if p is not None:
+            if p not in PROVIDER_META:
+                return Response({"error": "provider must be 'anthropic' or 'openai'."}, status=400)
+            if not engine.provider_key(p, cfg):
+                return Response({"error": f"Add a {PROVIDER_META[p]['name']} API key first."}, status=400)
+            cfg.provider = p
+            changed = True
+        if changed:
+            cfg.updated_by = request.user.username
+            cfg.save()
+    return Response({
+        "provider": cfg.provider,
+        "can_switch": allowed,
+        "updated_by": cfg.updated_by if allowed else "",
+        "updated_at": cfg.updated_at.isoformat() if cfg.updated_at else None,
+        "providers": [_provider_status(pid, cfg, allowed) for pid in ("anthropic", "openai")],
     })
 
 
@@ -544,7 +616,7 @@ def assist_ideas(request):
     focus = f"\n\nThe CEO is currently thinking about: {seed}" if seed else ""
     prompt = f"COMPANY CONSTITUTION:\n{const_text}\n{engine.memory_context(org)}{focus}\n\nGive four ideas."
     try:
-        data = engine.parse_json(engine.call_llm(system, [{"role": "user", "content": prompt}], 700, model=settings.ENGINE_MODEL_FAST, org=org, purpose="assist_ideas"))
+        data = engine.parse_json(engine.call_llm(system, [{"role": "user", "content": prompt}], 700, fast=True, org=org, purpose="assist_ideas"))
     except Exception as e:
         return Response({"error": f"AI is unavailable right now ({e})."}, status=502)
     ideas = [str(x).strip() for x in (data.get("ideas") or []) if str(x).strip()][:6]
@@ -573,7 +645,13 @@ def meetings(request):
     ]})
 
 
-PRICE_PER_MTOK = {"sonnet": (3.0, 15.0), "haiku": (1.0, 5.0), "opus": (15.0, 75.0)}
+# USD per million tokens (input, output). Order matters: the loop below keeps
+# the LAST match, so list least-specific model names before more-specific ones
+# (e.g. "gpt-4o" before "gpt-4o-mini").
+PRICE_PER_MTOK = {
+    "sonnet": (3.0, 15.0), "haiku": (1.0, 5.0), "opus": (15.0, 75.0),
+    "gpt-4o": (2.5, 10.0), "gpt-4o-mini": (0.15, 0.6),
+}
 
 
 def est_cost(model, tin, tout):

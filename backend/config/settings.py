@@ -4,6 +4,15 @@ import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load a local .env for development if one exists. Real environment variables
+# (e.g. those set in the Render dashboard) always win — this only fills gaps,
+# and it's a no-op if python-dotenv isn't installed.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    pass
+
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-secret")
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
 ALLOWED_HOSTS = ["*"]
@@ -105,7 +114,25 @@ EMAIL_BACKEND = (
 # Public URL of the frontend, used to build links inside emails (password reset).
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://ogaboss-app.onrender.com").rstrip("/")
 
-# Engine config
+# Engine config — the app can run on Anthropic (Claude) or OpenAI (GPT).
+# The live provider is a runtime switch persisted in the DB (ProviderConfig);
+# LLM_PROVIDER only sets the default used the very first time, before anyone
+# has flipped the switch. Both providers' keys/models come from the env below.
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic")  # first-run default only
+
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ENGINE_MODEL = os.environ.get("ENGINE_MODEL", "claude-sonnet-4-6")
 ENGINE_MODEL_FAST = os.environ.get("ENGINE_MODEL_FAST", "claude-haiku-4-5-20251001")
+
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
+OPENAI_MODEL_FAST = os.environ.get("OPENAI_MODEL_FAST", "gpt-4o-mini")
+
+# Who may switch the live AI provider. This is the app operator/owner, not the
+# org's CEO — by default only Geoffrey. Override with a comma-separated list of
+# usernames (case-insensitive). Django superusers can always switch.
+PROVIDER_ADMINS = [
+    u.strip().lower()
+    for u in os.environ.get("PROVIDER_ADMINS", "geoffrey").split(",")
+    if u.strip()
+]

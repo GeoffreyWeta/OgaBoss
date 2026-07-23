@@ -1,0 +1,16 @@
+# Secrets & local environment — NEVER commit these
+.env
+.env.*
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+backend/db.sqlite3
+backend/staticfiles/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db

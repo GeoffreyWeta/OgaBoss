@@ -19,6 +19,8 @@ services:
         generateValue: true
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: CEO_USERNAME
         value: geoffrey
       - key: CEO_PASSWORD

@@ -186,6 +186,36 @@ class UsageRecord(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class ProviderConfig(models.Model):
+    """System-wide LLM provider selection — a single row.
+
+    The app can think on Anthropic (Claude) or OpenAI (GPT). This is a live
+    switch (persisted here so it survives restarts without a redeploy); only
+    the designated operator may flip it (see settings.PROVIDER_ADMINS).
+    """
+    PROVIDERS = [("anthropic", "Anthropic (Claude)"), ("openai", "OpenAI (GPT)")]
+    provider = models.CharField(max_length=20, choices=PROVIDERS, default="anthropic")
+    # Keys entered through the UI. If blank, the engine falls back to the
+    # corresponding environment variable. Never serialized back to the client.
+    openai_key = models.TextField(blank=True, default="")
+    anthropic_key = models.TextField(blank=True, default="")
+    updated_by = models.CharField(max_length=150, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"LLM provider: {self.provider}"
+
+    @classmethod
+    def get_solo(cls):
+        obj = cls.objects.first()
+        if obj is None:
+            default = getattr(dj_settings, "LLM_PROVIDER", "anthropic")
+            if default not in dict(cls.PROVIDERS):
+                default = "anthropic"
+            obj = cls.objects.create(provider=default)
+        return obj
+
+
 class ApprovalPolicy(models.Model):
     """Per-department routing — simulate a real org's chain of command.
 

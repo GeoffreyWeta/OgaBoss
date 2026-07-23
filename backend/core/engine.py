@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from .models import (
     Agent, ApprovalPolicy, Artifact, Capability, Deliberation, DelibMessage, Directive,
-    OrgMemory, Proposal, StandingOrder, UsageRecord,
+    OrgMemory, ProviderConfig, Proposal, StandingOrder, UsageRecord,
 )
 
 
@@ -30,12 +30,45 @@ def notify(subject, body):
 
 log = logging.getLogger(__name__)
 
-API_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 
-def call_llm(system, messages, max_tokens=1200, model=None, web_search=False, org=None, agent=None, purpose=""):
+def _provider_cfg():
+    try:
+        return ProviderConfig.get_solo()
+    except Exception:
+        return None  # table not migrated yet — fall back to env-only
+
+
+def provider_key(provider, cfg=None):
+    """The effective API key for a provider: a UI-saved key wins, else the env
+    var. `cfg` may be None (before the table exists), in which case env-only."""
+    cfg = cfg if cfg is not None else _provider_cfg()
+    if provider == "openai":
+        saved = (cfg.openai_key if cfg else "") or ""
+        return (saved or settings.OPENAI_API_KEY or "").strip()
+    saved = (cfg.anthropic_key if cfg else "") or ""
+    return (saved or settings.ANTHROPIC_API_KEY or "").strip()
+
+
+def active_provider(cfg=None):
+    """The live provider, with a safety fallback: if the selected one has no
+    API key configured but the other does, use the one that can actually run."""
+    cfg = cfg if cfg is not None else _provider_cfg()
+    chosen = (cfg.provider if cfg else None) or getattr(settings, "LLM_PROVIDER", "anthropic")
+    has_openai = bool(provider_key("openai", cfg))
+    has_anthropic = bool(provider_key("anthropic", cfg))
+    if chosen == "openai" and not has_openai and has_anthropic:
+        return "anthropic"
+    if chosen == "anthropic" and not has_anthropic and has_openai:
+        return "openai"
+    return chosen
+
+
+def _call_anthropic(system, messages, max_tokens, model, web_search, api_key):
     payload = {
-        "model": model or settings.ENGINE_MODEL,
+        "model": model,
         "max_tokens": max_tokens,
         "system": system,
         "messages": messages,
@@ -43,9 +76,9 @@ def call_llm(system, messages, max_tokens=1200, model=None, web_search=False, or
     if web_search:
         payload["tools"] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}]
     resp = requests.post(
-        API_URL,
+        ANTHROPIC_URL,
         headers={
-            "x-api-key": settings.ANTHROPIC_API_KEY,
+            "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         },
@@ -55,16 +88,68 @@ def call_llm(system, messages, max_tokens=1200, model=None, web_search=False, or
     resp.raise_for_status()
     data = resp.json()
     usage = data.get("usage", {}) or {}
+    text = "\n".join(b["text"] for b in data.get("content", []) if b.get("type") == "text").strip()
+    return text, {
+        "model": data.get("model", model),
+        "input_tokens": usage.get("input_tokens", 0) or 0,
+        "output_tokens": usage.get("output_tokens", 0) or 0,
+    }
+
+
+def _call_openai(system, messages, max_tokens, model, web_search, api_key):
+    # OpenAI's Chat Completions API. The message shape ({"role","content"}) is
+    # already compatible; the system prompt is just the first message. Hosted
+    # web search isn't wired up here, so web_search is a no-op for this provider.
+    if web_search:
+        log.debug("web_search requested but the OpenAI provider runs without it")
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "system", "content": system}] + messages,
+    }
+    resp = requests.post(
+        OPENAI_URL,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=180,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    usage = data.get("usage", {}) or {}
+    choices = data.get("choices") or []
+    text = ((choices[0].get("message") or {}).get("content") or "").strip() if choices else ""
+    return text, {
+        "model": data.get("model", model),
+        "input_tokens": usage.get("prompt_tokens", 0) or 0,
+        "output_tokens": usage.get("completion_tokens", 0) or 0,
+    }
+
+
+def call_llm(system, messages, max_tokens=1200, model=None, fast=False, web_search=False, org=None, agent=None, purpose=""):
+    """Provider-agnostic LLM call. `fast=True` picks the cheaper model of the
+    active provider; `model` overrides the model outright if you must."""
+    cfg = _provider_cfg()
+    provider = active_provider(cfg)
+    api_key = provider_key(provider, cfg)
+    if provider == "openai":
+        chosen = model or (settings.OPENAI_MODEL_FAST if fast else settings.OPENAI_MODEL)
+        text, meta = _call_openai(system, messages, max_tokens, chosen, web_search, api_key)
+    else:
+        chosen = model or (settings.ENGINE_MODEL_FAST if fast else settings.ENGINE_MODEL)
+        text, meta = _call_anthropic(system, messages, max_tokens, chosen, web_search, api_key)
     try:
         UsageRecord.objects.create(
             org=org or (agent.org if agent else None), agent=agent, purpose=purpose,
-            model=data.get("model", model or settings.ENGINE_MODEL),
-            input_tokens=usage.get("input_tokens", 0) or 0,
-            output_tokens=usage.get("output_tokens", 0) or 0,
+            model=meta["model"],
+            input_tokens=meta["input_tokens"],
+            output_tokens=meta["output_tokens"],
         )
     except Exception:
         log.exception("usage metering failed")
-    return "\n".join(b["text"] for b in data.get("content", []) if b.get("type") == "text").strip()
+    return text
 
 
 def parse_json(text):
@@ -155,7 +240,7 @@ def pick_team(org, directive_text):
         "choose the department head who owns it plus 1-2 relevant participants. "
         'Respond ONLY with JSON: {"head_id": int, "participant_ids": [int, ...], "topic": "short title"}'
     )
-    text = call_llm(system, [{"role": "user", "content": f"ROSTER:\n{roster_text(org)}\n\nDIRECTIVE:\n{directive_text}"}], 400, model=settings.ENGINE_MODEL_FAST, org=org, purpose="routing")
+    text = call_llm(system, [{"role": "user", "content": f"ROSTER:\n{roster_text(org)}\n\nDIRECTIVE:\n{directive_text}"}], 400, fast=True, org=org, purpose="routing")
     data = parse_json(text)
     head = ai_agents(org).get(id=data["head_id"])
     participants = list(ai_agents(org).filter(id__in=data.get("participant_ids", [])).exclude(id=head.id))[:2]
@@ -278,7 +363,7 @@ def run_daily_cycle(org):
             idea = call_llm(
                 agent_system(agent, "Daily proactive cycle: propose ONE concrete, high-leverage idea for the company right now, from your role's lens. Do NOT repropose directions the CEO has rejected. Under 150 words."),
                 [{"role": "user", "content": "What should we do next? One idea."}],
-                600, model=settings.ENGINE_MODEL_FAST, agent=agent, purpose="daily_idea",
+                600, fast=True, agent=agent, purpose="daily_idea",
             )
             DelibMessage.objects.create(deliberation=delib, agent=agent, round=1, content=idea)
             reviewer = agent.reports_to
@@ -287,14 +372,14 @@ def run_daily_cycle(org):
                 review = call_llm(
                     agent_system(reviewer, "Briefly review your report's idea: strengthen, challenge, or refine it. Under 100 words."),
                     [{"role": "user", "content": f"{agent.name} proposes:\n{idea}"}],
-                    400, model=settings.ENGINE_MODEL_FAST, agent=reviewer, purpose="daily_review",
+                    400, fast=True, agent=reviewer, purpose="daily_review",
                 )
                 DelibMessage.objects.create(deliberation=delib, agent=reviewer, round=1, content=review)
                 rationale = f"{agent.name} proposed; {reviewer.name} reviewed: {review}"
             data = parse_json(call_llm(
                 agent_system(agent),
                 [{"role": "user", "content": f"Your idea:\n{idea}\n\nCondense into a proposal. Respond ONLY with JSON: {{\"title\": str, \"summary\": str}}"}],
-                500, model=settings.ENGINE_MODEL_FAST, agent=agent, purpose="daily_condense",
+                500, fast=True, agent=agent, purpose="daily_condense",
             ))
             prop_obj = Proposal.objects.create(
                 org=org, deliberation=delib, title=data["title"], summary=data["summary"],
@@ -360,7 +445,7 @@ def distill_memory(org):
     try:
         mem.playbook = call_llm(
             "You distill decisions into durable organizational lessons.",
-            [{"role": "user", "content": prompt}], 600, model=settings.ENGINE_MODEL_FAST, org=org, purpose="memory",
+            [{"role": "user", "content": prompt}], 600, fast=True, org=org, purpose="memory",
         )
         mem.save()
     except Exception:
@@ -454,7 +539,7 @@ def apply_policy(proposal_id):
               f"Proposal from {agent.name}:\nTitle: {prop.title}\nSummary: {prop.summary}\n\n"
               'Approve for execution, or hold for the human desk? Respond ONLY with JSON: '
               '{"decision": "approve"|"hold", "note": str (one line)}'}],
-            400, model=settings.ENGINE_MODEL_FAST, agent=mgr, purpose="delegated_review",
+            400, fast=True, agent=mgr, purpose="delegated_review",
         ))
         note = data.get("note", "")
         DelibMessage.objects.create(
