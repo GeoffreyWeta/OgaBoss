@@ -34,6 +34,28 @@ ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 
+def _raise_for_provider(resp, provider):
+    """Turn a failed API response into an error carrying the provider's own
+    message (e.g. 'insufficient_quota'), not a bare HTTP status line."""
+    if resp.status_code < 400:
+        return
+    msg, code = resp.text[:400], ""
+    try:
+        err = (resp.json().get("error") or {})
+        msg = err.get("message") or msg
+        code = err.get("code") or err.get("type") or ""
+    except Exception:
+        pass
+    label = "OpenAI" if provider == "openai" else "Anthropic"
+    tag = f" [{code}]" if code else ""
+    hint = ""
+    if resp.status_code == 429:
+        hint = " — the account is out of credit or over its rate limit; check billing/limits."
+    elif resp.status_code in (401, 403):
+        hint = " — the API key is missing, wrong, or lacks access."
+    raise RuntimeError(f"{label} {resp.status_code}{tag}: {msg}{hint}")
+
+
 def _provider_cfg():
     try:
         return ProviderConfig.get_solo()
@@ -85,7 +107,7 @@ def _call_anthropic(system, messages, max_tokens, model, web_search, api_key):
         json=payload,
         timeout=180,
     )
-    resp.raise_for_status()
+    _raise_for_provider(resp, "anthropic")
     data = resp.json()
     usage = data.get("usage", {}) or {}
     text = "\n".join(b["text"] for b in data.get("content", []) if b.get("type") == "text").strip()
@@ -116,7 +138,7 @@ def _call_openai(system, messages, max_tokens, model, web_search, api_key):
         json=payload,
         timeout=180,
     )
-    resp.raise_for_status()
+    _raise_for_provider(resp, "openai")
     data = resp.json()
     usage = data.get("usage", {}) or {}
     choices = data.get("choices") or []
