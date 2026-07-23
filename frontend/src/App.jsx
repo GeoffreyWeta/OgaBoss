@@ -800,6 +800,12 @@ function ProposalView({ id, back, me }) {
         {p.proposed_by && `Proposed by ${p.proposed_by}`}
         {p.assigned_to && ` · executes: ${p.assigned_to}`} · <span className="pill hot">{STATUS_LABEL[p.status]}</span>
       </div>
+      {p.status === "failed" && p.error && (
+        <div className="panel errpanel">
+          <div className="eyebrow">Why it failed</div>
+          <p className="body sm2">{p.error}</p>
+        </div>
+      )}
       <p className="body">{md(p.summary)}</p>
 
       {p.rationale && (

@@ -394,13 +394,15 @@ def run_revision(proposal_id):
         prop.title, prop.summary = data["title"], data["summary"]
         prop.rationale = (prop.rationale + "\n\nREVISION: " + data.get("rationale", "")).strip()
         prop.status = "pending"
+        prop.error = ""
         prop.save()
         delib.status = "done"
         delib.save(update_fields=["status"])
     except Exception as e:
         log.exception("revision failed")
         prop.status = "failed"
-        prop.save(update_fields=["status"])
+        prop.error = str(e)
+        prop.save(update_fields=["status", "error"])
 
 
 def artifact_instructions(image_ok):
@@ -447,12 +449,14 @@ def run_execution(proposal_id):
             title=data.get("title", prop.title), content=content,
         )
         prop.status = "artifact_pending"
-        prop.save(update_fields=["status"])
+        prop.error = ""
+        prop.save(update_fields=["status", "error"])
         notify(f"[HQ] Deliverable ready for sign-off: {data.get('title', prop.title)}", f"From {agent.name} — open HQ to review.")
     except Exception as e:
         log.exception("execution failed")
         prop.status = "failed"
-        prop.save(update_fields=["status"])
+        prop.error = str(e)
+        prop.save(update_fields=["status", "error"])
 
 
 def run_daily_cycle(org):

@@ -116,6 +116,7 @@ class Proposal(models.Model):
     assigned_to = models.ForeignKey(Agent, null=True, on_delete=models.SET_NULL, related_name="proposals_assigned")
     status = models.CharField(max_length=20, choices=STATUS, default="pending")
     ceo_feedback = models.TextField(blank=True, default="")
+    error = models.TextField(blank=True, default="", help_text="Why the last run failed, shown to the CEO")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

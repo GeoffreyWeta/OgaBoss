@@ -80,7 +80,7 @@ def agent_dict(a):
 def proposal_dict(p, deep=False):
     d = {
         "id": p.id, "title": p.title, "summary": p.summary, "status": p.status,
-        "rationale": p.rationale, "ceo_feedback": p.ceo_feedback,
+        "rationale": p.rationale, "ceo_feedback": p.ceo_feedback, "error": p.error,
         "proposed_by": p.proposed_by.name if p.proposed_by else None,
         "assigned_to": p.assigned_to.name if p.assigned_to else None,
         "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(),
