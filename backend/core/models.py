@@ -199,6 +199,10 @@ class ProviderConfig(models.Model):
     # corresponding environment variable. Never serialized back to the client.
     openai_key = models.TextField(blank=True, default="")
     anthropic_key = models.TextField(blank=True, default="")
+    # Optional overrides for the OpenAI-compatible slot, so it can point at a
+    # free provider (Groq, OpenRouter, Gemini compat, …). Blank = use defaults.
+    openai_base_url = models.TextField(blank=True, default="")
+    openai_model = models.CharField(max_length=120, blank=True, default="")
     updated_by = models.CharField(max_length=150, blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
 

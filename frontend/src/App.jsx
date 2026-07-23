@@ -79,12 +79,23 @@ function GearIcon({ size = 17 }) {
   );
 }
 
+// Free / low-cost OpenAI-compatible providers — base URL is stable; the model
+// is a sensible starting point (confirm the exact id in the provider's docs).
+const OPENAI_PRESETS = {
+  openai: { label: "OpenAI", base: "", model: "gpt-4o" },
+  groq: { label: "Groq (free)", base: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
+  openrouter: { label: "OpenRouter", base: "https://openrouter.ai/api/v1", model: "meta-llama/llama-3.3-70b-instruct:free" },
+  gemini: { label: "Gemini", base: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-2.0-flash" },
+};
+
 function SettingsMenu({ theme, setTheme, onPassword, onLogout, canSwitch }) {
   const [open, setOpen] = useState(false);
   const [prov, setProv] = useState(null);
   const [provBusy, setProvBusy] = useState(false);
   const [provErr, setProvErr] = useState("");
   const [keyDrafts, setKeyDrafts] = useState({});
+  const [oaBase, setOaBase] = useState("");
+  const [oaModel, setOaModel] = useState("");
   const ref = useRef(null);
   useEffect(() => {
     if (!open) return;
@@ -97,6 +108,10 @@ function SettingsMenu({ theme, setTheme, onPassword, onLogout, canSwitch }) {
   useEffect(() => {
     if (open && canSwitch && !prov) api("/provider/").then(setProv).catch(() => {});
   }, [open, canSwitch, prov]);
+  useEffect(() => {
+    const oa = prov && prov.providers.find((p) => p.id === "openai");
+    if (oa) { setOaBase(oa.base_url || ""); setOaModel(oa.model || ""); }
+  }, [prov]);
 
   async function switchProvider(id) {
     if (provBusy || (prov && prov.provider === id)) return;
@@ -120,6 +135,28 @@ function SettingsMenu({ theme, setTheme, onPassword, onLogout, canSwitch }) {
       const param = id === "openai" ? "openai_api_key" : "anthropic_api_key";
       setProv(await api("/provider/", { method: "POST", body: JSON.stringify({ [param]: val }) }));
       setKeyDrafts((k) => ({ ...k, [id]: "" }));
+    } catch (e) {
+      setProvErr(e.message);
+    } finally {
+      setProvBusy(false);
+    }
+  }
+
+  function applyPreset(id) {
+    const p = OPENAI_PRESETS[id];
+    if (p) { setOaBase(p.base); setOaModel(p.model); }
+  }
+
+  async function saveOpenAI() {
+    if (provBusy) return;
+    setProvBusy(true);
+    setProvErr("");
+    try {
+      const body = { openai_base_url: oaBase.trim(), openai_model: oaModel.trim() };
+      const key = (keyDrafts.openai || "").trim();
+      if (key) body.openai_api_key = key; // only send when set, so we never clear it
+      setProv(await api("/provider/", { method: "POST", body: JSON.stringify(body) }));
+      setKeyDrafts((k) => ({ ...k, openai: "" }));
     } catch (e) {
       setProvErr(e.message);
     } finally {
@@ -175,29 +212,59 @@ function SettingsMenu({ theme, setTheme, onPassword, onLogout, canSwitch }) {
                     {provBusy ? "Working…" : `Every agent thinks on ${activeModel}.`}
                   </div>
 
-                  {prov.providers.map((p) => (
-                    <div key={p.id} className="keyrow">
-                      <div className="keyhead">
-                        <span>{p.id === "openai" ? "OpenAI" : "Anthropic"} key</span>
-                        <span className="dim">
-                          {p.configured
-                            ? `✓ ${p.source === "env" ? "from server" : "saved"}${p.hint ? " " + p.hint : ""}`
-                            : "not set"}
-                        </span>
-                      </div>
-                      <div className="keyinput">
-                        <input className="in grow" type="password" autoComplete="off"
-                          placeholder={p.configured ? "Replace key…" : `Paste ${p.id === "openai" ? "sk-…" : "key"}`}
-                          value={keyDrafts[p.id] || ""}
-                          onChange={(e) => setKeyDrafts((k) => ({ ...k, [p.id]: e.target.value }))}
-                          onKeyDown={(e) => e.key === "Enter" && saveKey(p.id)} />
-                        <button className="btn coral sm" disabled={provBusy || !(keyDrafts[p.id] || "").trim()}
-                          onClick={() => saveKey(p.id)}>Save</button>
-                      </div>
-                    </div>
-                  ))}
+                  {(() => {
+                    const oa = prov.providers.find((p) => p.id === "openai") || {};
+                    const an = prov.providers.find((p) => p.id === "anthropic") || {};
+                    const status = (p) => p.configured
+                      ? `✓ ${p.source === "env" ? "from server" : "saved"}${p.hint ? " " + p.hint : ""}`
+                      : "not set";
+                    return (
+                      <>
+                        <div className="keyrow">
+                          <div className="keyhead">
+                            <span>OpenAI-compatible</span>
+                            <span className="dim">{status(oa)}</span>
+                          </div>
+                          <div className="presets">
+                            {Object.entries(OPENAI_PRESETS).map(([id, p]) => (
+                              <button key={id} className="chip csm" onClick={() => applyPreset(id)}>{p.label}</button>
+                            ))}
+                          </div>
+                          <input className="in" type="password" autoComplete="off" style={{ marginTop: 6 }}
+                            placeholder={oa.configured ? "Replace API key…" : "Paste API key"}
+                            value={keyDrafts.openai || ""}
+                            onChange={(e) => setKeyDrafts((k) => ({ ...k, openai: e.target.value }))} />
+                          <input className="in" style={{ marginTop: 6 }}
+                            placeholder="Base URL (blank = OpenAI)"
+                            value={oaBase} onChange={(e) => setOaBase(e.target.value)} />
+                          <div className="keyinput" style={{ marginTop: 6 }}>
+                            <input className="in grow" placeholder="Model id"
+                              value={oaModel} onChange={(e) => setOaModel(e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && saveOpenAI()} />
+                            <button className="btn coral sm" disabled={provBusy} onClick={saveOpenAI}>Save</button>
+                          </div>
+                        </div>
+
+                        <div className="keyrow">
+                          <div className="keyhead">
+                            <span>Anthropic key</span>
+                            <span className="dim">{status(an)}</span>
+                          </div>
+                          <div className="keyinput">
+                            <input className="in grow" type="password" autoComplete="off"
+                              placeholder={an.configured ? "Replace key…" : "Paste key"}
+                              value={keyDrafts.anthropic || ""}
+                              onChange={(e) => setKeyDrafts((k) => ({ ...k, anthropic: e.target.value }))}
+                              onKeyDown={(e) => e.key === "Enter" && saveKey("anthropic")} />
+                            <button className="btn coral sm" disabled={provBusy || !(keyDrafts.anthropic || "").trim()}
+                              onClick={() => saveKey("anthropic")}>Save</button>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
                   <div className="note" style={{ marginTop: 8, fontSize: 11.5 }}>
-                    Keys are stored on your server and never shown again — only the last 4 digits.
+                    Keys live on your server — shown only as the last 4 digits. Free test: tap <b>Groq</b>, paste your Groq key, confirm the model, Save, then flip the toggle to OpenAI.
                   </div>
                   {provErr && <div className="err" style={{ marginTop: 6 }}>{provErr}</div>}
                 </>

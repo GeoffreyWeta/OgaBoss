@@ -31,7 +31,6 @@ def notify(subject, body):
 log = logging.getLogger(__name__)
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 
 def _raise_for_provider(resp, provider):
@@ -72,6 +71,25 @@ def provider_key(provider, cfg=None):
         return (saved or settings.OPENAI_API_KEY or "").strip()
     saved = (cfg.anthropic_key if cfg else "") or ""
     return (saved or settings.ANTHROPIC_API_KEY or "").strip()
+
+
+def openai_endpoint(cfg=None):
+    """Chat-completions URL for the OpenAI-compatible slot. A UI/env base URL
+    lets it target Groq, OpenRouter, Gemini's compat endpoint, etc."""
+    cfg = cfg if cfg is not None else _provider_cfg()
+    base = ((cfg.openai_base_url if cfg else "") or settings.OPENAI_BASE_URL or "").strip().rstrip("/")
+    if not base:
+        base = "https://api.openai.com/v1"
+    return base if base.endswith("/chat/completions") else base + "/chat/completions"
+
+
+def openai_model_for(cfg, fast):
+    """Effective OpenAI-compatible model. A single UI-set model is used for
+    both tiers (free providers usually expose one good model)."""
+    custom = (cfg.openai_model if cfg else "") or ""
+    if custom:
+        return custom
+    return settings.OPENAI_MODEL_FAST if fast else settings.OPENAI_MODEL
 
 
 def active_provider(cfg=None):
@@ -118,19 +136,19 @@ def _call_anthropic(system, messages, max_tokens, model, web_search, api_key):
     }
 
 
-def _call_openai(system, messages, max_tokens, model, web_search, api_key):
-    # OpenAI's Chat Completions API. The message shape ({"role","content"}) is
-    # already compatible; the system prompt is just the first message. Hosted
-    # web search isn't wired up here, so web_search is a no-op for this provider.
+def _call_openai(system, messages, max_tokens, model, web_search, api_key, endpoint):
+    # OpenAI Chat Completions (or any compatible provider). The message shape
+    # ({"role","content"}) is already compatible; the system prompt is just the
+    # first message. Hosted web search isn't wired up, so web_search is a no-op.
     if web_search:
-        log.debug("web_search requested but the OpenAI provider runs without it")
+        log.debug("web_search requested but the OpenAI-compatible provider runs without it")
     payload = {
         "model": model,
         "max_tokens": max_tokens,
         "messages": [{"role": "system", "content": system}] + messages,
     }
     resp = requests.post(
-        OPENAI_URL,
+        endpoint,
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -157,8 +175,8 @@ def call_llm(system, messages, max_tokens=1200, model=None, fast=False, web_sear
     provider = active_provider(cfg)
     api_key = provider_key(provider, cfg)
     if provider == "openai":
-        chosen = model or (settings.OPENAI_MODEL_FAST if fast else settings.OPENAI_MODEL)
-        text, meta = _call_openai(system, messages, max_tokens, chosen, web_search, api_key)
+        chosen = model or openai_model_for(cfg, fast)
+        text, meta = _call_openai(system, messages, max_tokens, chosen, web_search, api_key, openai_endpoint(cfg))
     else:
         chosen = model or (settings.ENGINE_MODEL_FAST if fast else settings.ENGINE_MODEL)
         text, meta = _call_anthropic(system, messages, max_tokens, chosen, web_search, api_key)

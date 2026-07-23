@@ -124,7 +124,12 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ENGINE_MODEL = os.environ.get("ENGINE_MODEL", "claude-sonnet-4-6")
 ENGINE_MODEL_FAST = os.environ.get("ENGINE_MODEL_FAST", "claude-haiku-4-5-20251001")
 
+# The "OpenAI" slot speaks the OpenAI Chat Completions format, so it also works
+# with any OpenAI-compatible provider (Groq, OpenRouter, Gemini's compat
+# endpoint, …) by pointing OPENAI_BASE_URL at them. Base URL + model are also
+# overridable from the settings UI (ProviderConfig).
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 OPENAI_MODEL_FAST = os.environ.get("OPENAI_MODEL_FAST", "gpt-4o-mini")
 

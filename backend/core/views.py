@@ -297,7 +297,7 @@ def _provider_status(pid, cfg, reveal_hint):
     """Masked, safe-to-serialize status for one provider — never the raw key."""
     saved = getattr(cfg, PROVIDER_META[pid]["key_field"]) or ""
     eff = engine.provider_key(pid, cfg)
-    return {
+    status = {
         "id": pid,
         "name": PROVIDER_META[pid]["name"],
         "model": getattr(settings, PROVIDER_META[pid]["model_setting"]),
@@ -306,6 +306,14 @@ def _provider_status(pid, cfg, reveal_hint):
         "source": "saved" if saved else ("env" if eff else None),
         "hint": (("…" + eff[-4:]) if (eff and reveal_hint) else ""),
     }
+    if pid == "openai":
+        # This slot is OpenAI-compatible: expose its endpoint + model so the
+        # owner can point it at a free provider (Groq, OpenRouter, Gemini…).
+        status["endpoint_editable"] = True
+        status["base_url"] = (cfg.openai_base_url or "").strip() if reveal_hint else ""
+        status["base_url_effective"] = engine.openai_endpoint(cfg)
+        status["model"] = engine.openai_model_for(cfg, fast=False)
+    return status
 
 
 @api_view(["GET", "POST"])
@@ -327,6 +335,13 @@ def provider_config(request):
                     return Response({"error": "That API key looks too short — double-check the paste."}, status=400)
                 setattr(cfg, PROVIDER_META[pid]["key_field"], v)
                 changed = True
+        # Save the OpenAI-compatible endpoint + model (blank = back to defaults).
+        if "openai_base_url" in request.data:
+            cfg.openai_base_url = (request.data.get("openai_base_url") or "").strip()
+            changed = True
+        if "openai_model" in request.data:
+            cfg.openai_model = (request.data.get("openai_model") or "").strip()
+            changed = True
         # Switch the live provider.
         p = request.data.get("provider")
         if p is not None:
